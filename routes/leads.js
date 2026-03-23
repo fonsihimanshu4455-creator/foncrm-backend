@@ -1,55 +1,47 @@
 const express = require('express')
 const router = express.Router()
-const jwt = require('jsonwebtoken')
 const Lead = require('../models/Lead')
+const { protect, allowRoles } = require('../middleware/authMiddleware')
 
-// Auth middleware
-const auth = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1]
-  if (!token) return res.status(401).json({ message: 'No token' })
+// Leads lo — role ke hisaab se
+router.get('/', protect, async (req, res) => {
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET)
-    next()
-  } catch {
-    res.status(401).json({ message: 'Invalid token' })
-  }
-}
-
-// Get all leads
-router.get('/', auth, async (req, res) => {
-  try {
-    const leads = await Lead.find().sort({ createdAt: -1 })
+    let leads
+    if (['superadmin', 'admin'].includes(req.user.role)) {
+      leads = await Lead.find()
+    } else if (req.user.role === 'manager') {
+      leads = await Lead.find({ company: req.user.company })
+    } else {
+      leads = await Lead.find({ assignedTo: req.user.id })
+    }
     res.json(leads)
   } catch (err) {
     res.status(500).json({ message: err.message })
   }
 })
 
-// Add lead
-router.post('/', auth, async (req, res) => {
+// Lead banao
+router.post('/', protect, async (req, res) => {
   try {
-    const lead = await Lead.create(req.body)
+    const lead = await Lead.create({ ...req.body, createdBy: req.user.id })
     res.json(lead)
   } catch (err) {
     res.status(500).json({ message: err.message })
   }
 })
 
-// Update lead
-router.put('/:id', auth, async (req, res) => {
+// Lead delete
+router.delete('/:id', protect, async (req, res) => {
   try {
-    const lead = await Lead.findByIdAndUpdate(req.params.id, req.body, { new: true })
-    res.json(lead)
-  } catch (err) {
-    res.status(500).json({ message: err.message })
-  }
-})
+    const lead = await Lead.findById(req.params.id)
+    if (!lead) return res.status(404).json({ message: 'Lead not found' })
 
-// Delete lead
-router.delete('/:id', auth, async (req, res) => {
-  try {
+    if (!['superadmin', 'admin', 'manager'].includes(req.user.role) &&
+        lead.createdBy?.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Access denied' })
+    }
     await Lead.findByIdAndDelete(req.params.id)
-    res.json({ message: 'Lead deleted' })
+    res.json({ message: 'Lead deleted!' })
   } catch (err) {
     res.status(500).json({ message: err.message })
   }
