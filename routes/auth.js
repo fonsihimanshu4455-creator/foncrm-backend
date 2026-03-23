@@ -56,7 +56,8 @@ router.post('/login', async (req, res) => {
 // Get all users — sirf superadmin aur admin
 router.get('/users', protect, allowRoles('superadmin', 'admin'), async (req, res) => {
   try {
-    const users = await User.find().select('-password')
+    const filter = req.user.role === 'superadmin' ? {} : { company: req.user.company }
+    const users = await User.find(filter).select('-password')
     res.json(users)
   } catch (err) {
     res.status(500).json({ message: err.message })

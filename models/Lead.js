@@ -9,6 +9,8 @@ const leadSchema = new mongoose.Schema({
   value: { type: Number, default: 0 },
   notes: { type: String },
   assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  company: { type: String, default: '' },
 }, { timestamps: true })
 
 module.exports = mongoose.model('Lead', leadSchema)

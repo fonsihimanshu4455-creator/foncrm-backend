@@ -56,7 +56,7 @@ router.post('/companies', protect, allowRoles('superadmin'), logActivity('Compan
     const company = await Company.create({
       name, email, phone: phone || '',
       plan: plan || 'trial',
-      maxUsers: maxUsers || (plan === 'trial' ? 3 : plan === 'starter' ? 5 : 999),
+      maxUsers: maxUsers || (plan === 'trial' ? 3 : plan === 'starter' ? 5 : plan === 'professional' ? 20 : 999),
       trialEndsAt: new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000),
       address: address || '',
       industry: industry || '',
@@ -95,7 +95,7 @@ router.put('/companies/:id/plan', protect, allowRoles('superadmin'), logActivity
     const { plan, maxUsers, days } = req.body
     const update = {
       plan,
-      maxUsers: maxUsers || (plan === 'trial' ? 3 : plan === 'starter' ? 5 : 999),
+      maxUsers: maxUsers || (plan === 'trial' ? 3 : plan === 'starter' ? 5 : plan === 'professional' ? 20 : 999),
       planStatus: 'active',
       trialEndsAt: new Date(Date.now() + (days || 30) * 24 * 60 * 60 * 1000)
     }

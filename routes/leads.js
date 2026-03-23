@@ -23,7 +23,7 @@ router.get('/', protect, async (req, res) => {
 // Lead banao
 router.post('/', protect, async (req, res) => {
   try {
-    const lead = await Lead.create({ ...req.body, createdBy: req.user.id })
+    const lead = await Lead.create({ ...req.body, createdBy: req.user.id, company: req.user.company || '' })
     res.json(lead)
   } catch (err) {
     res.status(500).json({ message: err.message })
