@@ -10,8 +10,10 @@ const userSchema = new mongoose.Schema({
     default: 'agent'
   },
   company: { type: String, default: '' },
+  companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', default: null },
   isActive: { type: Boolean, default: true },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  lastLogin: { type: Date, default: null },
 }, { timestamps: true })
 
 module.exports = mongoose.model('User', userSchema)

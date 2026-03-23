@@ -11,6 +11,8 @@ app.use(express.json())
 
 app.use('/api/auth', require('./routes/auth'))
 app.use('/api/leads', require('./routes/leads'))
+app.use('/api/superadmin', require('./routes/superadmin'))
+app.use('/api/admin', require('./routes/admin'))
 
 app.get('/', (req, res) => {
   res.json({ message: 'FonCRM Backend Running! 🚀' })

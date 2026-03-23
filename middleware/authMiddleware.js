@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken')
+const ActivityLog = require('../models/ActivityLog')
 
 const protect = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1]
@@ -21,4 +22,21 @@ const allowRoles = (...roles) => {
   }
 }
 
-module.exports = { protect, allowRoles }
+const logActivity = (action) => {
+  return async (req, res, next) => {
+    try {
+      await ActivityLog.create({
+        user: req.user?.id,
+        userName: req.user?.name,
+        userRole: req.user?.role,
+        action,
+        details: JSON.stringify(req.body || {}),
+        company: req.user?.company || '',
+        ip: req.ip || ''
+      })
+    } catch (e) {}
+    next()
+  }
+}
+
+module.exports = { protect, allowRoles, logActivity }
