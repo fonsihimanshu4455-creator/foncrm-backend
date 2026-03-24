@@ -1,10 +1,18 @@
 const express  = require('express')
 const router   = express.Router()
+const crypto   = require('crypto')
 const Meeting  = require('../models/Meeting')
 const { protect } = require('../middleware/authMiddleware')
 const { checkTrial }     = require('../middleware/trialMiddleware')
 const { getScopeFilter } = require('../utils/scopeFilter')
 const { notify }         = require('../utils/createNotification')
+const { addTimeline }    = require('../utils/addTimeline')
+
+// Generate a random Google Meet-style link
+function genMeetLink() {
+  const seg = () => crypto.randomBytes(3).toString('hex').toLowerCase().slice(0, 3)
+  return `https://meet.google.com/${seg()}-${seg()}-${seg()}`
+}
 
 // ── List meetings ─────────────────────────────────────────────────────────────
 router.get('/', protect, checkTrial, async (req, res) => {
@@ -94,13 +102,22 @@ router.post('/', protect, checkTrial, async (req, res) => {
     } = req.body
 
     const meeting = await Meeting.create({
-      title, description, startTime, endTime, location, meetingLink,
+      title, description, startTime, endTime, location,
+      meetingLink: meetingLink || (type === 'video' ? genMeetLink() : undefined),
       type, attendees, reminder, notes,
       relatedLead, relatedContact, relatedDeal,
       assignedTo: assignedTo || req.user._id,
       company:   req.user.company,
       createdBy: req.user._id
     })
+
+    // Timeline on related lead/deal
+    if (relatedLead) {
+      await addTimeline({ entityId: relatedLead, entityType: 'lead', action: 'meeting_scheduled', description: `Meeting scheduled: "${meeting.title}" on ${new Date(meeting.startTime).toDateString()}`, userId: req.user._id, userName: req.user.name, company: req.user.company })
+    }
+    if (relatedDeal) {
+      await addTimeline({ entityId: relatedDeal, entityType: 'deal', action: 'meeting_scheduled', description: `Meeting scheduled: "${meeting.title}" on ${new Date(meeting.startTime).toDateString()}`, userId: req.user._id, userName: req.user.name, company: req.user.company })
+    }
 
     // Notify assigned user if different from creator
     if (assignedTo && assignedTo.toString() !== req.user.id) {
@@ -187,6 +204,34 @@ router.delete('/:id', protect, checkTrial, async (req, res) => {
     const meeting = await Meeting.findOneAndDelete({ _id: req.params.id, company: req.user.company })
     if (!meeting) return res.status(404).json({ message: 'Meeting not found' })
     res.json({ message: 'Meeting deleted' })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+// ── PUT meeting outcome ────────────────────────────────────────────────────────
+router.put('/:id/outcome', protect, checkTrial, async (req, res) => {
+  try {
+    const { outcome, status } = req.body
+    const meeting = await Meeting.findOneAndUpdate(
+      { _id: req.params.id, company: req.user.company },
+      {
+        outcome,
+        status: status || 'completed'
+      },
+      { new: true }
+    )
+    if (!meeting) return res.status(404).json({ message: 'Meeting not found' })
+
+    // Timeline on related entities
+    if (meeting.relatedLead) {
+      await addTimeline({ entityId: meeting.relatedLead, entityType: 'lead', action: 'meeting_completed', description: `Meeting "${meeting.title}" completed. Outcome: ${outcome || 'N/A'}`, userId: req.user._id, userName: req.user.name, company: meeting.company })
+    }
+    if (meeting.relatedDeal) {
+      await addTimeline({ entityId: meeting.relatedDeal, entityType: 'deal', action: 'meeting_completed', description: `Meeting "${meeting.title}" completed. Outcome: ${outcome || 'N/A'}`, userId: req.user._id, userName: req.user.name, company: meeting.company })
+    }
+
+    res.json(meeting)
   } catch (err) {
     res.status(500).json({ message: err.message })
   }

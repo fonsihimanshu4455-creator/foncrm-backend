@@ -8,6 +8,7 @@ const leadSchema = new mongoose.Schema({
   source: { type: String, default: 'Manual' },
   value: { type: Number, default: 0 },
   notes: { type: String },
+  tags: [{ type: String }],
   assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   company: { type: String, default: '' },

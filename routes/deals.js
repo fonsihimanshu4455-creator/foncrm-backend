@@ -1,10 +1,12 @@
 const express = require('express')
-const router = express.Router()
-const Deal = require('../models/Deal')
+const router  = express.Router()
+const Deal    = require('../models/Deal')
 const { protect, allowRoles } = require('../middleware/authMiddleware')
-const { checkTrial } = require('../middleware/trialMiddleware')
-const { getScopeFilter } = require('../utils/scopeFilter')
-const { notify } = require('../utils/createNotification')
+const { checkTrial }          = require('../middleware/trialMiddleware')
+const { getScopeFilter }      = require('../utils/scopeFilter')
+const { notify }              = require('../utils/createNotification')
+const { addPoints }           = require('../utils/addPoints')
+const { addTimeline }         = require('../utils/addTimeline')
 
 // ─── GET pipeline view (must be before /:id) ─────────────────────────────────
 router.get('/pipeline', protect, checkTrial, async (req, res) => {
@@ -145,18 +147,32 @@ router.put('/:id', protect, checkTrial, async (req, res) => {
     deal._changedBy = req.user.id
     await deal.save()
 
-    // Notify on won
-    if (req.body.stage && req.body.stage !== prevStage && req.body.stage === 'won') {
-      await notify({
-        userId: deal.createdBy,
-        title: '🎉 Deal Won!',
-        message: `"${deal.title}" marked as WON — ₹${deal.value.toLocaleString()}`,
-        type: 'deal',
-        priority: 'high',
-        relatedModel: 'Deal',
-        relatedId: deal._id,
-        company: deal.company
+    // Notify on won + award points + timeline
+    if (req.body.stage && req.body.stage !== prevStage) {
+      await addTimeline({
+        entityId:    deal._id,
+        entityType:  'deal',
+        action:      'stage_changed',
+        description: `Stage changed from ${prevStage} to ${deal.stage}`,
+        userId:      req.user._id,
+        userName:    req.user.name,
+        company:     deal.company,
+        metadata:    { from: prevStage, to: deal.stage }
       })
+
+      if (req.body.stage === 'won') {
+        await notify({
+          userId:   deal.createdBy,
+          title:    'Deal Won!',
+          message:  `"${deal.title}" marked as WON — ₹${deal.value.toLocaleString()}`,
+          type:     'deal',
+          priority: 'high',
+          relatedModel: 'Deal',
+          relatedId: deal._id,
+          company:   deal.company
+        })
+        await addPoints(req.user._id, req.user.company, 'deal_won')
+      }
     }
 
     res.json(deal)

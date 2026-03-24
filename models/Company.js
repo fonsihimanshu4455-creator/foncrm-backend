@@ -21,6 +21,8 @@ const companySchema = new mongoose.Schema({
   address: { type: String, default: '' },
   industry: { type: String, default: '' },
   notes: { type: String, default: '' },
+  portalEnabled: { type: Boolean, default: false },
+  portalToken:   { type: String, default: null },
 }, { timestamps: true })
 
 module.exports = mongoose.model('Company', companySchema)

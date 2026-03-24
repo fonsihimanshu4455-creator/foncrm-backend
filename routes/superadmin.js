@@ -1,8 +1,9 @@
-const express = require('express')
-const router = express.Router()
-const Company = require('../models/Company')
-const User = require('../models/User')
-const Lead = require('../models/Lead')
+const express     = require('express')
+const router      = express.Router()
+const crypto      = require('crypto')
+const Company     = require('../models/Company')
+const User        = require('../models/User')
+const Lead        = require('../models/Lead')
 const ActivityLog = require('../models/ActivityLog')
 const { protect, allowRoles, logActivity } = require('../middleware/authMiddleware')
 
@@ -140,6 +141,34 @@ router.delete('/logs', protect, allowRoles('superadmin'), async (req, res) => {
   try {
     await ActivityLog.deleteMany({})
     res.json({ message: 'Logs cleared!' })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+// ─── CUSTOMER PORTAL TOKEN ───────────────────────────────
+router.post('/companies/:id/portal-token', protect, allowRoles('superadmin'), async (req, res) => {
+  try {
+    const token   = crypto.randomBytes(32).toString('hex')
+    const company = await Company.findByIdAndUpdate(
+      req.params.id,
+      { portalToken: token, portalEnabled: true },
+      { new: true }
+    )
+    if (!company) return res.status(404).json({ message: 'Company not found' })
+    res.json({ message: 'Portal token generated', portalToken: token, portalEnabled: true })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+router.patch('/companies/:id/portal-toggle', protect, allowRoles('superadmin'), async (req, res) => {
+  try {
+    const company = await Company.findById(req.params.id)
+    if (!company) return res.status(404).json({ message: 'Company not found' })
+    company.portalEnabled = !company.portalEnabled
+    await company.save()
+    res.json({ message: `Portal ${company.portalEnabled ? 'enabled' : 'disabled'}`, portalEnabled: company.portalEnabled })
   } catch (err) {
     res.status(500).json({ message: err.message })
   }

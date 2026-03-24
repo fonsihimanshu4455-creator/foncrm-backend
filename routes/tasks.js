@@ -1,10 +1,12 @@
 const express = require('express')
-const router = express.Router()
-const Task = require('../models/Task')
-const { protect } = require('../middleware/authMiddleware')
-const { checkTrial } = require('../middleware/trialMiddleware')
+const router  = express.Router()
+const Task    = require('../models/Task')
+const { protect }        = require('../middleware/authMiddleware')
+const { checkTrial }     = require('../middleware/trialMiddleware')
 const { getScopeFilter } = require('../utils/scopeFilter')
-const { notify } = require('../utils/createNotification')
+const { notify }         = require('../utils/createNotification')
+const { addPoints }      = require('../utils/addPoints')
+const { addTimeline }    = require('../utils/addTimeline')
 
 // ─── GET overdue count (must be before /:id) ──────────────────────────────────
 router.get('/overdue/count', protect, checkTrial, async (req, res) => {
@@ -143,6 +145,36 @@ router.patch('/:id/complete', protect, checkTrial, async (req, res) => {
       { new: true }
     )
     if (!task) return res.status(404).json({ message: 'Task not found' })
+
+    // Award points for task completion
+    await addPoints(req.user._id, req.user.company, 'task_completed')
+
+    // Timeline entry on related lead/deal
+    if (task.relatedLead) {
+      await addTimeline({
+        entityId:    task.relatedLead,
+        entityType:  'lead',
+        action:      'task_completed',
+        description: `Task completed: "${task.title}"`,
+        userId:      req.user._id,
+        userName:    req.user.name,
+        company:     task.company,
+        metadata:    { taskId: task._id, taskType: task.type }
+      })
+    }
+    if (task.relatedDeal) {
+      await addTimeline({
+        entityId:    task.relatedDeal,
+        entityType:  'deal',
+        action:      'task_completed',
+        description: `Task completed: "${task.title}"`,
+        userId:      req.user._id,
+        userName:    req.user.name,
+        company:     task.company,
+        metadata:    { taskId: task._id, taskType: task.type }
+      })
+    }
+
     res.json({ message: 'Task completed!', task })
   } catch (err) {
     res.status(500).json({ message: err.message })
