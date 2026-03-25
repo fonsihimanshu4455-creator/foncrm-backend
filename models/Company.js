@@ -23,6 +23,8 @@ const companySchema = new mongoose.Schema({
   notes: { type: String, default: '' },
   portalEnabled: { type: Boolean, default: false },
   portalToken:   { type: String, default: null },
+  resellerToken: { type: String, default: '' },
+  resellerId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Reseller', default: null },
 }, { timestamps: true })
 
 module.exports = mongoose.model('Company', companySchema)
