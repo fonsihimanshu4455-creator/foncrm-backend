@@ -16,6 +16,9 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
   "bugs": {
     "url": "https://github.com/fonsihimanshu4455-creator/foncrm-backend/issues"
   },

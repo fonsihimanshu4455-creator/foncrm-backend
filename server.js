@@ -53,7 +53,11 @@ app.use('/api/superadmin',    require('./routes/superadmin'))
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
-  res.json({ message: 'FonCRM Backend Running! 🚀', version: '2.1.0' })
+  res.json({
+    message: 'FonCRM Backend Running! 🚀',
+    version: '2.1.0',
+    db: mongoose.connection.readyState === 1 ? 'connected' : 'connecting'
+  })
 })
 
 // ─── 404 handler ─────────────────────────────────────────────────────────────
@@ -67,15 +71,25 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: err.message || 'Internal server error' })
 })
 
-// ─── DB + Server start ────────────────────────────────────────────────────────
-mongoose.connect(process.env.MONGO_URI)
-  .then(async () => {
+// ─── Server start ─────────────────────────────────────────────────────────────
+// Bind the port IMMEDIATELY (independent of the DB) so the platform health check
+// passes even while Mongo is still connecting. Otherwise a slow/failed DB connect
+// means the port never opens and the deploy is marked "failed".
+const PORT = process.env.PORT || 5000
+app.listen(PORT, () => console.log(`🚀 FonCRM running on port ${PORT}`))
+
+// ─── DB connect (retries, non-fatal) ──────────────────────────────────────────
+const connectDB = async (attempt = 1) => {
+  try {
+    await mongoose.connect(process.env.MONGO_URI, { serverSelectionTimeoutMS: 10000 })
     console.log('✅ MongoDB Connected!')
     try { await seedSuperadmin() } catch (e) { console.log('⚠️  Seed error:', e.message) }
-    app.listen(process.env.PORT || 5000, () => {
-      console.log(`🚀 FonCRM running on port ${process.env.PORT || 5000}`)
-    })
-  })
-  .catch(err => console.log('❌ DB Error:', err))
+  } catch (err) {
+    const wait = Math.min(30, 2 ** attempt)
+    console.log(`❌ DB Error (attempt ${attempt}): ${err.message} — retrying in ${wait}s`)
+    setTimeout(() => connectDB(attempt + 1), wait * 1000)
+  }
+}
+connectDB()
 
 module.exports = app
