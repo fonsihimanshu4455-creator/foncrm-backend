@@ -1,12 +1,13 @@
 const mongoose = require('mongoose')
 
+// Stage strings match the frontend Pipeline grouping EXACTLY.
 const stageProbability = {
-  new: 10,
-  qualified: 25,
-  proposal: 50,
-  negotiation: 75,
-  won: 100,
-  lost: 0
+  New: 10,
+  Contacted: 25,
+  Proposal: 50,
+  Negotiation: 75,
+  Won: 100,
+  Lost: 0
 }
 
 const dealSchema = new mongoose.Schema({
@@ -15,9 +16,11 @@ const dealSchema = new mongoose.Schema({
   currency: { type: String, default: 'INR' },
   stage: {
     type: String,
-    enum: ['new', 'qualified', 'proposal', 'negotiation', 'won', 'lost'],
-    default: 'new'
+    enum: ['New', 'Contacted', 'Proposal', 'Negotiation', 'Won', 'Lost'],
+    default: 'New'
   },
+  // Free-text person/company the deal is with (frontend contract fields)
+  person: { type: String, default: '' },
   probability: { type: Number, default: 10 },
   expectedCloseDate: { type: Date, default: null },
   actualCloseDate: { type: Date, default: null },
@@ -53,7 +56,7 @@ dealSchema.virtual('productsTotal').get(function () {
 dealSchema.pre('save', function (next) {
   if (this.isModified('stage')) {
     this.probability = stageProbability[this.stage] ?? 10
-    if (this.stage === 'won' || this.stage === 'lost') {
+    if (this.stage === 'Won' || this.stage === 'Lost') {
       this.actualCloseDate = new Date()
     }
     this.stageHistory.push({

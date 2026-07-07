@@ -7,11 +7,12 @@ const { protect, allowRoles } = require('../middleware/authMiddleware')
 const { checkTrial } = require('../middleware/trialMiddleware')
 const { getScopeFilter } = require('../utils/scopeFilter')
 const { notify } = require('../utils/createNotification')
+const { sendError } = require('../utils/errors')
 
-// ─── GET all contacts (role-scoped, paginated, filterable) ────────────────────
+// ─── GET all contacts (role-scoped, filterable) — returns a JSON array ─────────
 router.get('/', protect, checkTrial, async (req, res) => {
   try {
-    const { status, tag, search, page = 1, limit = 20 } = req.query
+    const { status, tag, search } = req.query
     const filter = getScopeFilter(req.user)
 
     if (status) filter.status = status
@@ -21,20 +22,14 @@ router.get('/', protect, checkTrial, async (req, res) => {
       filter.$or = [{ name: rx }, { email: rx }, { phone: rx }, { company: rx }, { jobTitle: rx }]
     }
 
-    const skip = (parseInt(page) - 1) * parseInt(limit)
-    const [contacts, total] = await Promise.all([
-      Contact.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .populate('assignedTo', 'name email')
-        .populate('createdBy', 'name'),
-      Contact.countDocuments(filter)
-    ])
+    const contacts = await Contact.find(filter)
+      .sort({ createdAt: -1 })
+      .populate('assignedTo', 'name email')
+      .populate('createdBy', 'name')
 
-    res.json({ contacts, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) })
+    res.json(contacts)
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 
@@ -53,7 +48,7 @@ router.get('/:id/timeline', protect, checkTrial, async (req, res) => {
 
     res.json(timeline)
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 
@@ -68,13 +63,14 @@ router.get('/:id', protect, checkTrial, async (req, res) => {
     if (!contact) return res.status(404).json({ message: 'Contact not found' })
     res.json(contact)
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 
 // ─── POST create contact ──────────────────────────────────────────────────────
 router.post('/', protect, checkTrial, async (req, res) => {
   try {
+    if (!req.body.name) return res.status(400).json({ message: 'name is required' })
     const contact = new Contact({
       ...req.body,
       company: req.body.company || req.user.company || '',
@@ -97,7 +93,7 @@ router.post('/', protect, checkTrial, async (req, res) => {
 
     res.status(201).json(contact)
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 
@@ -110,7 +106,7 @@ router.put('/:id', protect, checkTrial, async (req, res) => {
     await contact.save() // triggers pre-save hook (leadScore recalc)
     res.json(contact)
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 
@@ -124,7 +120,7 @@ router.patch('/bulk', protect, allowRoles('superadmin', 'admin', 'manager'), che
     const result = await Contact.updateMany({ _id: { $in: ids } }, update)
     res.json({ message: `${result.modifiedCount} contacts updated` })
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 
@@ -142,7 +138,7 @@ router.delete('/:id', protect, checkTrial, async (req, res) => {
     await Contact.findByIdAndDelete(req.params.id)
     res.json({ message: 'Contact deleted!' })
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 

@@ -5,6 +5,7 @@ const { protect, allowRoles } = require('../middleware/authMiddleware')
 const { checkTrial } = require('../middleware/trialMiddleware')
 const { getScopeFilter } = require('../utils/scopeFilter')
 const { notify } = require('../utils/createNotification')
+const { sendError } = require('../utils/errors')
 
 // ─── GET pipeline view (must be before /:id) ─────────────────────────────────
 router.get('/pipeline', protect, checkTrial, async (req, res) => {
@@ -25,7 +26,7 @@ router.get('/pipeline', protect, checkTrial, async (req, res) => {
         }
       ]),
       Deal.aggregate([
-        { $match: { ...filter, stage: { $nin: ['won', 'lost'] } } },
+        { $match: { ...filter, stage: { $nin: ['Won', 'Lost'] } } },
         {
           $group: {
             _id: null,
@@ -35,13 +36,13 @@ router.get('/pipeline', protect, checkTrial, async (req, res) => {
       ])
     ])
 
-    const stages = ['new', 'qualified', 'proposal', 'negotiation', 'won', 'lost']
+    const stages = ['New', 'Contacted', 'Proposal', 'Negotiation', 'Won', 'Lost']
     const stageMap = {}
     stages.forEach(s => { stageMap[s] = { count: 0, totalValue: 0, avgValue: 0, deals: [] } })
     pipeline.forEach(p => { stageMap[p._id] = p })
 
     const pipelineValue = pipeline
-      .filter(p => !['won', 'lost'].includes(p._id))
+      .filter(p => !['Won', 'Lost'].includes(p._id))
       .reduce((sum, p) => sum + (p.totalValue || 0), 0)
 
     res.json({
@@ -50,7 +51,7 @@ router.get('/pipeline', protect, checkTrial, async (req, res) => {
       revenueForecast: Math.round(forecastData[0]?.forecast || 0)
     })
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 
@@ -71,20 +72,14 @@ router.get('/', protect, checkTrial, async (req, res) => {
       filter.$or = [{ title: rx }, { notes: rx }]
     }
 
-    const skip = (parseInt(page) - 1) * parseInt(limit)
-    const [deals, total] = await Promise.all([
-      Deal.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .populate('assignedTo', 'name email')
-        .populate('contact', 'name email'),
-      Deal.countDocuments(filter)
-    ])
+    const deals = await Deal.find(filter)
+      .sort({ createdAt: -1 })
+      .populate('assignedTo', 'name email')
+      .populate('contact', 'name email')
 
-    res.json({ deals, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) })
+    res.json(deals)
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 
@@ -99,13 +94,14 @@ router.get('/:id', protect, checkTrial, async (req, res) => {
     if (!deal) return res.status(404).json({ message: 'Deal not found' })
     res.json(deal)
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 
 // ─── POST create deal ─────────────────────────────────────────────────────────
 router.post('/', protect, checkTrial, async (req, res) => {
   try {
+    if (!req.body.title) return res.status(400).json({ message: 'title is required' })
     const deal = new Deal({
       ...req.body,
       company: req.body.company || req.user.company || '',
@@ -130,7 +126,7 @@ router.post('/', protect, checkTrial, async (req, res) => {
 
     res.status(201).json(deal)
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 
@@ -146,7 +142,7 @@ router.put('/:id', protect, checkTrial, async (req, res) => {
     await deal.save()
 
     // Notify on won
-    if (req.body.stage && req.body.stage !== prevStage && req.body.stage === 'won') {
+    if (req.body.stage && req.body.stage !== prevStage && req.body.stage === 'Won') {
       await notify({
         userId: deal.createdBy,
         title: '🎉 Deal Won!',
@@ -161,7 +157,7 @@ router.put('/:id', protect, checkTrial, async (req, res) => {
 
     res.json(deal)
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 
@@ -181,7 +177,7 @@ router.patch('/:id/stage', protect, checkTrial, async (req, res) => {
 
     res.json({ message: 'Stage updated!', deal })
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 
@@ -195,7 +191,7 @@ router.patch('/bulk', protect, allowRoles('superadmin', 'admin', 'manager'), che
     const result = await Deal.updateMany({ _id: { $in: ids } }, update)
     res.json({ message: `${result.modifiedCount} deals updated` })
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 
@@ -213,7 +209,7 @@ router.delete('/:id', protect, checkTrial, async (req, res) => {
     await Deal.findByIdAndDelete(req.params.id)
     res.json({ message: 'Deal deleted!' })
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 

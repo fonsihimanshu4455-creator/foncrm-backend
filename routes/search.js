@@ -68,12 +68,9 @@ router.get('/', protect, checkTrial, async (req, res) => {
 
     if (searchTypes.includes('tasks')) {
       searches.push(
-        Task.find({
-          ...scope,
-          $or: [{ title: regex }, { description: regex }]
-        })
+        Task.find({ ...scope, text: regex })
           .limit(lim)
-          .select('title status priority dueDate type')
+          .select('text done')
           .then(r => ({ type: 'tasks', results: r }))
       )
     }

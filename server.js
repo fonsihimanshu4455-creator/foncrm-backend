@@ -5,8 +5,31 @@ const mongoose = require('mongoose')
 
 dotenv.config()
 
+const { seedSuperadmin } = require('./utils/seedSuperadmin')
+
 const app = express()
-app.use(cors())
+
+// ─── CORS ──────────────────────────────────────────────────────────────────────
+// Allow the local dev frontend, any *.vercel.app deployment, and explicit
+// origins listed in FRONTEND_URL (comma-separated). Requests with no Origin
+// header (curl, server-to-server, mobile) are always allowed.
+const staticOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  ...(process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',').map(s => s.trim()) : [])
+].filter(Boolean)
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (!origin) return callback(null, true)
+    if (staticOrigins.includes(origin)) return callback(null, true)
+    if (/\.vercel\.app$/.test(new URL(origin).hostname)) return callback(null, true)
+    return callback(new Error(`CORS blocked: ${origin}`))
+  },
+  credentials: true
+}
+
+app.use(cors(corsOptions))
 app.use(express.json())
 
 // ─── Core routes ──────────────────────────────────────────────────────────────
@@ -19,7 +42,10 @@ app.use('/api/notifications', require('./routes/notifications'))
 
 // ─── Analytics & utility routes ───────────────────────────────────────────────
 app.use('/api/dashboard',     require('./routes/dashboard'))
+app.use('/api/reports',       require('./routes/reports'))
 app.use('/api/search',        require('./routes/search'))
+app.use('/api/whatsapp',      require('./routes/whatsapp'))
+app.use('/api/settings',      require('./routes/settings'))
 
 // ─── Admin routes ─────────────────────────────────────────────────────────────
 app.use('/api/admin',         require('./routes/admin'))
@@ -27,42 +53,7 @@ app.use('/api/superadmin',    require('./routes/superadmin'))
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
-  res.json({
-    message: 'FonCRM Backend Running! 🚀',
-    version: '2.0.0',
-    routes: [
-      'POST   /api/auth/register',
-      'POST   /api/auth/login',
-      'GET    /api/leads',
-      'POST   /api/leads',
-      'PUT    /api/leads/:id',
-      'DELETE /api/leads/:id',
-      'GET    /api/contacts',
-      'POST   /api/contacts',
-      'PUT    /api/contacts/:id',
-      'DELETE /api/contacts/:id',
-      'GET    /api/contacts/:id/timeline',
-      'GET    /api/deals',
-      'POST   /api/deals',
-      'PUT    /api/deals/:id',
-      'PATCH  /api/deals/:id/stage',
-      'GET    /api/deals/pipeline',
-      'DELETE /api/deals/:id',
-      'GET    /api/tasks',
-      'POST   /api/tasks',
-      'PUT    /api/tasks/:id',
-      'PATCH  /api/tasks/:id/complete',
-      'DELETE /api/tasks/:id',
-      'GET    /api/notifications',
-      'PUT    /api/notifications/read-all',
-      'GET    /api/dashboard/stats',
-      'GET    /api/dashboard/pipeline-health',
-      'GET    /api/dashboard/source-analytics',
-      'GET    /api/search?q=',
-      'GET    /api/admin/stats',
-      'GET    /api/superadmin/stats',
-    ]
-  })
+  res.json({ message: 'FonCRM Backend Running! 🚀', version: '2.1.0' })
 })
 
 // ─── 404 handler ─────────────────────────────────────────────────────────────
@@ -72,16 +63,19 @@ app.use((req, res) => {
 
 // ─── Global error handler ─────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
-  console.error('❌ Unhandled error:', err)
+  console.error('❌ Unhandled error:', err.message)
   res.status(500).json({ message: err.message || 'Internal server error' })
 })
 
 // ─── DB + Server start ────────────────────────────────────────────────────────
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => {
+  .then(async () => {
     console.log('✅ MongoDB Connected!')
+    try { await seedSuperadmin() } catch (e) { console.log('⚠️  Seed error:', e.message) }
     app.listen(process.env.PORT || 5000, () => {
       console.log(`🚀 FonCRM running on port ${process.env.PORT || 5000}`)
     })
   })
   .catch(err => console.log('❌ DB Error:', err))
+
+module.exports = app

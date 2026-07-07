@@ -2,141 +2,60 @@ const express = require('express')
 const router = express.Router()
 const Lead = require('../models/Lead')
 const Deal = require('../models/Deal')
-const Contact = require('../models/Contact')
 const Task = require('../models/Task')
-const ActivityLog = require('../models/ActivityLog')
 const { protect } = require('../middleware/authMiddleware')
 const { checkTrial } = require('../middleware/trialMiddleware')
 const { getScopeFilter } = require('../utils/scopeFilter')
+const { sendError } = require('../utils/errors')
 
-// ─── GET comprehensive dashboard stats ────────────────────────────────────────
+// ─── GET dashboard stats (frontend contract shape) ────────────────────────────
 router.get('/stats', protect, checkTrial, async (req, res) => {
   try {
     const filter = getScopeFilter(req.user)
-
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-    const startOfWeek = new Date(now)
-    startOfWeek.setDate(now.getDate() - now.getDay())
-    startOfWeek.setHours(0, 0, 0, 0)
-    const startOfToday = new Date(now)
-    startOfToday.setHours(0, 0, 0, 0)
-    const endOfToday = new Date(now)
-    endOfToday.setHours(23, 59, 59, 999)
 
-    const [
-      totalLeads,
-      totalDeals,
-      totalContacts,
-      totalTasks,
-      leadsThisMonth,
-      leadsLastMonth,
-      leadsThisWeek,
-      dealsWon,
-      dealsLost,
-      pendingTasks,
-      overdueTasks,
-      tasksDueToday,
-      pipelineData,
-      forecastData,
-      leadsByStatus,
-      dealsByStage,
-      recentActivity,
-      topPerformers
-    ] = await Promise.all([
+    const [totalLeads, activeDealsAgg, wonMonthAgg, wonCount, latestLeads] = await Promise.all([
       Lead.countDocuments(filter),
-      Deal.countDocuments(filter),
-      Contact.countDocuments(filter),
-      Task.countDocuments(filter),
-      Lead.countDocuments({ ...filter, createdAt: { $gte: startOfMonth } }),
-      Lead.countDocuments({ ...filter, createdAt: { $gte: startOfLastMonth, $lt: startOfMonth } }),
-      Lead.countDocuments({ ...filter, createdAt: { $gte: startOfWeek } }),
-      Deal.countDocuments({ ...filter, stage: 'won' }),
-      Deal.countDocuments({ ...filter, stage: 'lost' }),
-      Task.countDocuments({ ...filter, status: { $in: ['pending', 'in_progress'] } }),
-      Task.countDocuments({ ...filter, dueDate: { $lt: now }, status: { $nin: ['completed', 'cancelled'] } }),
-      Task.countDocuments({ ...filter, dueDate: { $gte: startOfToday, $lte: endOfToday }, status: { $nin: ['completed', 'cancelled'] } }),
-      // Active pipeline value
+      // Active pipeline value = deals not Won/Lost
       Deal.aggregate([
-        { $match: { ...filter, stage: { $nin: ['won', 'lost'] } } },
+        { $match: { ...filter, stage: { $nin: ['Won', 'Lost'] } } },
         { $group: { _id: null, total: { $sum: '$value' } } }
       ]),
-      // Probability-weighted revenue forecast
+      // Won value this month
       Deal.aggregate([
-        { $match: { ...filter, stage: { $nin: ['won', 'lost'] } } },
-        { $group: { _id: null, forecast: { $sum: { $multiply: ['$value', { $divide: ['$probability', 100] }] } } } }
+        { $match: { ...filter, stage: 'Won', actualCloseDate: { $gte: startOfMonth } } },
+        { $group: { _id: null, total: { $sum: '$value' } } }
       ]),
-      // Leads breakdown by status
-      Lead.aggregate([
-        { $match: filter },
-        { $group: { _id: '$status', count: { $sum: 1 } } }
-      ]),
-      // Deals breakdown by stage
-      Deal.aggregate([
-        { $match: filter },
-        { $group: { _id: '$stage', count: { $sum: 1 }, totalValue: { $sum: '$value' } } }
-      ]),
-      // Recent activity log
-      ActivityLog.find(req.user.role === 'superadmin' ? {} : { company: req.user.company })
+      Deal.countDocuments({ ...filter, stage: 'Won' }),
+      Lead.find(filter)
         .sort({ createdAt: -1 })
-        .limit(10),
-      // Top performers (agents by won deals)
-      Deal.aggregate([
-        { $match: { ...filter, stage: 'won' } },
-        { $group: { _id: '$assignedTo', wonDeals: { $sum: 1 }, totalValue: { $sum: '$value' } } },
-        { $sort: { wonDeals: -1 } },
-        { $limit: 5 },
-        { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'user' } },
-        { $unwind: { path: '$user', preserveNullAndEmpty: true } },
-        { $project: { wonDeals: 1, totalValue: 1, 'user.name': 1, 'user.email': 1 } }
-      ])
+        .limit(5)
+        .select('name email status source value')
     ])
 
-    const conversionRate = totalDeals > 0 ? Math.round((dealsWon / totalDeals) * 100) : 0
-    const leadGrowth = leadsLastMonth > 0
-      ? Math.round(((leadsThisMonth - leadsLastMonth) / leadsLastMonth) * 100)
-      : null
+    const conversionRate = totalLeads > 0 ? Math.round((wonCount / totalLeads) * 100) : 0
 
     res.json({
-      // Core counts
       totalLeads,
-      totalDeals,
-      totalContacts,
-      totalTasks,
-
-      // Lead metrics
-      leadsThisMonth,
-      leadsLastMonth,
-      leadsThisWeek,
-      leadGrowth,           // % vs last month (null if no data)
-
-      // Deal metrics
-      dealsWon,
-      dealsLost,
-      conversionRate,       // %
-      pipelineValue: pipelineData[0]?.total || 0,
-      revenueForecast: Math.round(forecastData[0]?.forecast || 0),
-
-      // Task metrics
-      pendingTasks,
-      overdueTasks,
-      tasksDueToday,
-
-      // Breakdown charts
-      leadsByStatus,
-      dealsByStage,
-
-      // Activity & people
-      recentActivity,
-      topPerformers
+      activeDealsValue: activeDealsAgg[0]?.total || 0,
+      wonThisMonthValue: wonMonthAgg[0]?.total || 0,
+      conversionRate,
+      latestLeads: latestLeads.map(l => ({
+        _id: l._id,
+        name: l.name,
+        email: l.email,
+        status: l.status,
+        source: l.source,
+        value: l.value
+      }))
     })
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 
-// ─── GET pipeline health score (unique feature) ───────────────────────────────
+// ─── GET pipeline health score ────────────────────────────────────────────────
 router.get('/pipeline-health', protect, checkTrial, async (req, res) => {
   try {
     const filter = getScopeFilter(req.user)
@@ -144,10 +63,10 @@ router.get('/pipeline-health', protect, checkTrial, async (req, res) => {
     const staleThreshold = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
 
     const [totalActive, staleDeals, overdueFollowUps, highValueAtRisk] = await Promise.all([
-      Deal.countDocuments({ ...filter, stage: { $nin: ['won', 'lost'] } }),
-      Deal.countDocuments({ ...filter, stage: { $nin: ['won', 'lost'] }, updatedAt: { $lt: staleThreshold } }),
-      Task.countDocuments({ ...filter, relatedDeal: { $exists: true, $ne: null }, dueDate: { $lt: now }, status: { $nin: ['completed', 'cancelled'] } }),
-      Deal.countDocuments({ ...filter, stage: { $nin: ['won', 'lost'] }, value: { $gte: 50000 }, updatedAt: { $lt: staleThreshold } })
+      Deal.countDocuments({ ...filter, stage: { $nin: ['Won', 'Lost'] } }),
+      Deal.countDocuments({ ...filter, stage: { $nin: ['Won', 'Lost'] }, updatedAt: { $lt: staleThreshold } }),
+      Task.countDocuments({ ...filter, relatedDeal: { $exists: true, $ne: null }, dueDate: { $lt: now }, done: false }),
+      Deal.countDocuments({ ...filter, stage: { $nin: ['Won', 'Lost'] }, value: { $gte: 50000 }, updatedAt: { $lt: staleThreshold } })
     ])
 
     let healthScore = 100
@@ -162,20 +81,13 @@ router.get('/pipeline-health', protect, checkTrial, async (req, res) => {
       healthScore >= 50 ? 'Good' :
       healthScore >= 25 ? 'Needs Attention' : 'Critical'
 
-    res.json({
-      healthScore,
-      healthLabel,
-      totalActive,
-      staleDeals,
-      overdueFollowUps,
-      highValueAtRisk
-    })
+    res.json({ healthScore, healthLabel, totalActive, staleDeals, overdueFollowUps, highValueAtRisk })
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 
-// ─── GET lead source analytics (unique feature) ───────────────────────────────
+// ─── GET lead source analytics ────────────────────────────────────────────────
 router.get('/source-analytics', protect, checkTrial, async (req, res) => {
   try {
     const filter = getScopeFilter(req.user)
@@ -187,7 +99,7 @@ router.get('/source-analytics', protect, checkTrial, async (req, res) => {
         { $sort: { count: -1 } }
       ]),
       Deal.aggregate([
-        { $match: { ...filter, stage: 'won' } },
+        { $match: { ...filter, stage: 'Won' } },
         { $group: { _id: '$source', wonCount: { $sum: 1 }, revenue: { $sum: '$value' } } },
         { $sort: { revenue: -1 } }
       ])
@@ -195,7 +107,7 @@ router.get('/source-analytics', protect, checkTrial, async (req, res) => {
 
     res.json({ leadSources, dealSources })
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    sendError(res, err)
   }
 })
 

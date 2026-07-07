@@ -5,7 +5,11 @@ const leadSchema = new mongoose.Schema({
   email: { type: String },
   phone: { type: String },
   status: { type: String, default: 'New', enum: ['New', 'Hot', 'Warm', 'Cold'] },
-  source: { type: String, default: 'Manual' },
+  source: {
+    type: String,
+    default: 'Manual',
+    enum: ['Manual', 'WhatsApp', 'Email', 'Website', 'Referral', 'LinkedIn']
+  },
   value: { type: Number, default: 0 },
   notes: { type: String },
   assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
